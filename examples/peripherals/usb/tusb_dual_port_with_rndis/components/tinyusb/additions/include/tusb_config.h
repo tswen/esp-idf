@@ -81,7 +81,7 @@ extern "C" {
 #define CFG_TUD_HID CONFIG_USB_HID_ENABLED
 #define CFG_TUD_MIDI CONFIG_USB_MIDI_ENABLED
 #define CFG_TUD_CUSTOM_CLASS CONFIG_USB_CUSTOM_CLASS_ENABLED
-#define CFG_TUD_NET 0
+#define CFG_TUD_NET 1
 /*         */
 /* KCONFIG */
 /*         */
