@@ -35,7 +35,8 @@
 
 #include "tusb.h"
 
-uint8_t tud_network_mac_address[6] = {0x02,0x02,0x84,0x6A,0x96,0x00};
+#include "cmd_wifi.h"
+
 SemaphoreHandle_t semp;
 
 #ifdef CONFIG_HEAP_TRACING
@@ -56,8 +57,8 @@ static heap_trace_record_t trace_record[NUM_RECORDS]; // This buffer must be in 
 #define EPNUM_CDC_OUT     0x04
 
 static const char *TAG = "esp_rndis";
-static uint8_t buf[2][CONFIG_USB_CDC_RX_BUFSIZE + 1];
-static bool s_wifi_is_connected = false;
+static uint8_t buf[CONFIG_USB_CDC_RX_BUFSIZE + 1];
+extern bool s_wifi_is_connected;
 
 /* A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
  * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
@@ -209,7 +210,7 @@ void tud_network_set_xmit_status(bool enable)
 }
 
 #define DELAY_TICK    10
-static esp_err_t pkt_wifi2usb(void *buffer, uint16_t len, void *eb)
+esp_err_t pkt_wifi2usb(void *buffer, uint16_t len, void *eb)
 {
     uint32_t loop = DELAY_TICK;
     if (!tud_ready()) {
@@ -232,74 +233,32 @@ static esp_err_t pkt_wifi2usb(void *buffer, uint16_t len, void *eb)
     return ESP_OK;
 }
 
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    switch (event_id) {
-        case WIFI_EVENT_STA_START:
-          esp_wifi_get_mac(ESP_IF_WIFI_STA, tud_network_mac_address);
-          esp_wifi_connect();
-          break;
-        case WIFI_EVENT_STA_CONNECTED:
-            ESP_LOGI(TAG, "Wi-Fi STA connected");
-            esp_wifi_internal_reg_rxcb(ESP_IF_WIFI_STA, pkt_wifi2usb);
-            // s_wifi_is_started = true;
-            s_wifi_is_connected = true;
-            break;
-
-        case WIFI_EVENT_STA_DISCONNECTED:
-            ESP_LOGI(TAG, "Wi-Fi STA disconnected");
-            s_wifi_is_connected = false;
-            // esp_wifi_internal_reg_rxcb(ESP_IF_WIFI_STA, NULL);
-            if (tud_ready()) {
-              esp_wifi_connect();
-            }
-            break;
-
-        default:
-            break;
-    }
-}
-
-/* Initialize Wi-Fi as sta and set scan method */
-static void wifi_init(void)
-{
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
-    assert(sta_netif);
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = "tsw_test",
-            .password = "qwertyui"
-        },
-    };
-    // esp_netif_dhcpc_stop(sta_netif);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
-}
-
+char *test = NULL;
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */
     size_t rx_size = 0;
 
     /* read */
-    esp_err_t ret = tinyusb_cdcacm_read(itf, buf[itf], CONFIG_USB_CDC_RX_BUFSIZE, &rx_size);
+    esp_err_t ret = tinyusb_cdcacm_read(0, buf, CONFIG_USB_CDC_RX_BUFSIZE, &rx_size);
     if (ret == ESP_OK) {
-        buf[itf][rx_size] = '\0';
-        ESP_LOGI(TAG, "itf %d: Got data (%d bytes): %s", itf, rx_size, buf[itf]);
+        
+        test = (char*)buf;
+        printf("the buf is %s\r\n", test);
+        if (!strcmp(test, "AT+TEST")) {
+            printf("Hello world\r\n");
+            wifi_test();
+        }
+
+        buf[rx_size] = '\0';
+        // ESP_LOGI(TAG, "itf %d: Got data (%d bytes): %s", itf, rx_size, buf);
     } else {
         ESP_LOGE(TAG, "itf %d: itfRead error", itf);
     }
 
     /* write back */
-    tinyusb_cdcacm_write_queue(itf, buf[itf], rx_size);
-    tinyusb_cdcacm_write_flush(itf, 0);
+    // tinyusb_cdcacm_write_queue(itf, buf, rx_size);
+    // tinyusb_cdcacm_write_flush(itf, 0);
 }
 
 void tinyusb_cdc_line_state_changed_callback(int itf, cdcacm_event_t *event)
@@ -340,21 +299,10 @@ void app_main(void)
         .rx_unread_buf_sz = 64,
         .callback_rx = &tinyusb_cdc_rx_callback, // the first way to register a callback
         .callback_rx_wanted_char = NULL,
-        .callback_line_state_changed = NULL,
+        .callback_line_state_changed = &tinyusb_cdc_line_state_changed_callback,
         .callback_line_coding_changed = NULL
     };
 
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&amc_cfg));
-    amc_cfg.cdc_port = TINYUSB_CDC_ACM_1;
-    ESP_ERROR_CHECK(tusb_cdc_acm_init(&amc_cfg));
-    /* the second way to register a callback */
-    ESP_ERROR_CHECK(tinyusb_cdcacm_register_callback(
-                        TINYUSB_CDC_ACM_0,
-                        CDC_EVENT_LINE_STATE_CHANGED,
-                        &tinyusb_cdc_line_state_changed_callback));
-    ESP_ERROR_CHECK(tinyusb_cdcacm_register_callback(
-                        TINYUSB_CDC_ACM_1,
-                        CDC_EVENT_LINE_STATE_CHANGED,
-                        &tinyusb_cdc_line_state_changed_callback));
     ESP_LOGI(TAG, "USB initialization DONE");
 }
