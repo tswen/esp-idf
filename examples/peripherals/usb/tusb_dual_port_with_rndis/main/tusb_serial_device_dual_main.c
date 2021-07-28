@@ -233,7 +233,7 @@ esp_err_t pkt_wifi2usb(void *buffer, uint16_t len, void *eb)
     return ESP_OK;
 }
 
-char *test = NULL;
+char *Cmd = NULL;
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */
@@ -242,16 +242,10 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     /* read */
     esp_err_t ret = tinyusb_cdcacm_read(0, buf, CONFIG_USB_CDC_RX_BUFSIZE, &rx_size);
     if (ret == ESP_OK) {
-        
-        test = (char*)buf;
-        printf("the buf is %s\r\n", test);
-        if (!strcmp(test, "AT+TEST")) {
-            printf("Hello world\r\n");
-            wifi_test();
-        }
-
         buf[rx_size] = '\0';
-        // ESP_LOGI(TAG, "itf %d: Got data (%d bytes): %s", itf, rx_size, buf);
+        Cmd = (char*)buf;
+        esp_cmd_parse(Cmd);
+
     } else {
         ESP_LOGE(TAG, "itf %d: itfRead error", itf);
     }
@@ -291,7 +285,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
-    wifi_init();
+    initialise_wifi();
 
     tinyusb_config_cdcacm_t amc_cfg = {
         .usb_dev = TINYUSB_USBDEV_0,
