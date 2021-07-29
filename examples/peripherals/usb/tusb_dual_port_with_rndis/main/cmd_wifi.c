@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 
 #include "lwip/ip_addr.h"
 #include "lwip/netif.h"
@@ -25,10 +26,15 @@
 #include "esp_private/wifi.h"
 
 #include "tusb.h"
+#include "tusb_cdc_acm.h"
 
 #include "cmd_wifi.h"
 
 static const char *TAG = "rndis_wifi";
+static EventGroupHandle_t wifi_event_group;
+static bool reconnect = true;
+const int CONNECTED_BIT = BIT0;
+const int DISCONNECTED_BIT = BIT1;
 
 uint8_t tud_network_mac_address[6] = {0x02,0x02,0x84,0x6A,0x96,0x00};
 bool s_wifi_is_connected = false;
@@ -48,15 +54,23 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGI(TAG, "Wi-Fi STA connected");
             esp_wifi_internal_reg_rxcb(ESP_IF_WIFI_STA, pkt_wifi2usb);
             s_wifi_is_connected = true;
+            xEventGroupClearBits(wifi_event_group, DISCONNECTED_BIT);
+            xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
             break;
 
         case WIFI_EVENT_STA_DISCONNECTED:
             ESP_LOGI(TAG, "Wi-Fi STA disconnected");
             s_wifi_is_connected = false;
             esp_wifi_internal_reg_rxcb(ESP_IF_WIFI_STA, NULL);
-            if (tud_ready()) {
-              esp_wifi_connect();
+
+            if (reconnect && tud_ready()) {
+                ESP_LOGI(TAG, "sta disconnect, reconnect...");
+                esp_wifi_connect();
+            } else {
+                ESP_LOGI(TAG, "sta disconnect");
             }
+            xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
+            xEventGroupSetBits(wifi_event_group, DISCONNECTED_BIT);
             break;
 
         default:
@@ -68,20 +82,23 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 void initialise_wifi(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
+    wifi_event_group = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
     assert(sta_netif);
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL));
 
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-static bool wifi_cmd_sta_join(const char* ssid, const char* pass)
+static esp_err_t wifi_cmd_sta_join(const char* ssid, const char* pass)
 {
+    int bits = xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, 0, 1, 0);
+
     wifi_config_t wifi_config = { 0 };
     wifi_config.sta.pmf_cfg.capable = true;
 
@@ -90,12 +107,62 @@ static bool wifi_cmd_sta_join(const char* ssid, const char* pass)
         strlcpy((char*) wifi_config.sta.password, pass, sizeof(wifi_config.sta.password));
     }
 
+    if (bits & CONNECTED_BIT) {
+        reconnect = false;
+        xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
+        ESP_ERROR_CHECK( esp_wifi_disconnect() );
+        xEventGroupWaitBits(wifi_event_group, DISCONNECTED_BIT, 0, 1, portTICK_RATE_MS);
+    }
+
+    reconnect = true;
     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     esp_wifi_connect();
 
-    return true;
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, 0, 1, 5000/portTICK_RATE_MS);
+
+    return ESP_OK;
 }
+
+char AP_Info[700];
+static esp_err_t wifi_cmd_query(void)
+{
+    wifi_config_t cfg;
+    wifi_mode_t mode;
+
+    esp_wifi_get_mode(&mode);
+    if (WIFI_MODE_AP == mode) {
+        esp_wifi_get_config(WIFI_IF_AP, &cfg);
+        ESP_LOGI(TAG, "AP mode, %s %s", cfg.ap.ssid, cfg.ap.password);
+    } else if (WIFI_MODE_STA == mode) {
+        int bits = xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, 0, 1, 0);
+        if (bits & CONNECTED_BIT) {
+            esp_wifi_get_config(WIFI_IF_STA, &cfg);
+            ESP_LOGI(TAG, "+CWJAP=:%s,%d,%d,%d", cfg.ap.ssid, cfg.ap.channel, cfg.ap.beacon_interval, cfg.ap.authmode);
+            int lenth = sprintf(AP_Info, "\r\n+CWJAP=:%s,%d,%d,%d\r\nOK",  cfg.ap.ssid, cfg.ap.channel, cfg.ap.beacon_interval, cfg.ap.authmode);
+            tinyusb_cdcacm_write_queue(0, (uint8_t*)AP_Info, lenth);
+            tinyusb_cdcacm_write_flush(0, 0);
+        } else {
+            ESP_LOGI(TAG, "sta mode, disconnected");
+        }
+    } else {
+        ESP_LOGI(TAG, "NULL mode");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+// static bool wifi_cmd_sta_scan(const char* ssid)
+// {
+//     wifi_scan_config_t scan_config = { 0 };
+//     scan_config.ssid = (uint8_t *) ssid;
+
+//     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
+//     esp_wifi_scan_start(&scan_config, false);
+
+//     return true;
+// }
 
 char *parse_elem(char * instr,char *search_str,int *buf_size)
 {
@@ -144,9 +211,22 @@ static esp_err_t at_set_cmd(char* Cmd, int length)
 static esp_err_t at_get_cmd(char* Cmd)
 {
     if (!strncmp(Cmd, "AT+CWJAP", 8)) {
-        /* TODO */
+        wifi_cmd_query();
         // Return the connected wifi information to USB
         ESP_LOGI("esp_cmd_parse", "Return the connected wifi information to USB");
+        return ESP_OK;
+    } else {
+        ESP_LOGE("esp_cmd_parse", "/* %s */ No such AT command", Cmd);
+        return ESP_FAIL;
+    }
+}
+
+static esp_err_t at_cmd(char* Cmd)
+{
+    if (!strncmp(Cmd, "AT+CWLAP", 8)) {
+        /* TODO */
+        // List scan AP
+        ESP_LOGI("esp_cmd_parse", "List scan AP");
         return ESP_OK;
     } else {
         ESP_LOGE("esp_cmd_parse", "/* %s */ No such AT command", Cmd);
@@ -184,7 +264,9 @@ esp_err_t esp_cmd_parse(char* Cmd)
                 }
                 return ESP_FAIL;
             }
-
+            if (!at_cmd(Cmd)) {
+                return ESP_OK;
+            }
             ESP_LOGE("esp_cmd_parse", "AT command format error");
             return ESP_FAIL;
         }
