@@ -127,8 +127,10 @@ static esp_err_t wifi_cmd_sta_join(const char* ssid, const char* pass)
 char AP_Info[700];
 static esp_err_t wifi_cmd_query(void)
 {
-    wifi_config_t cfg;
+    wifi_config_t cfg = {0};
     wifi_mode_t mode;
+
+    memset(&cfg, 0, sizeof(cfg));
 
     esp_wifi_get_mode(&mode);
     if (WIFI_MODE_AP == mode) {
@@ -138,8 +140,8 @@ static esp_err_t wifi_cmd_query(void)
         int bits = xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, 0, 1, 0);
         if (bits & CONNECTED_BIT) {
             esp_wifi_get_config(WIFI_IF_STA, &cfg);
-            ESP_LOGI(TAG, "+CWJAP=:%s,%d,%d,%d", cfg.ap.ssid, cfg.ap.channel, cfg.ap.beacon_interval, cfg.ap.authmode);
-            int lenth = sprintf(AP_Info, "\r\n+CWJAP=:%s,%d,%d,%d\r\nOK",  cfg.ap.ssid, cfg.ap.channel, cfg.ap.beacon_interval, cfg.ap.authmode);
+            ESP_LOGI(TAG, "+CWJAP=:%s,%d,%d,%d", cfg.sta.ssid, cfg.sta.channel, cfg.sta.listen_interval, cfg.sta.threshold.authmode);
+            int lenth = sprintf(AP_Info, "\r\n+CWJAP=:%s,%d,%d,%d\r\nOK",  cfg.sta.ssid, cfg.sta.channel, cfg.sta.listen_interval, cfg.sta.threshold.authmode);
             tinyusb_cdcacm_write_queue(0, (uint8_t*)AP_Info, lenth);
             tinyusb_cdcacm_write_flush(0, 0);
         } else {
