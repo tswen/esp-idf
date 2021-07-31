@@ -6,5 +6,4 @@ if(NOT "${target}" MATCHES "^esp32s[2-3]")
 endif()
 
 idf_component_register(SRCS "hcd.c"
-                    INCLUDE_DIRS ""
-                    PRIV_INCLUDE_DIRS "private_include")
+                    INCLUDE_DIRS "" "private_include")

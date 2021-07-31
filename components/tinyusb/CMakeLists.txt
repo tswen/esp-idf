@@ -29,6 +29,7 @@ if(CONFIG_USB_ENABLED)
       "${COMPONENT_DIR}/tinyusb/hw/bsp/"
       "${COMPONENT_DIR}/tinyusb/src/"
       "${COMPONENT_DIR}/tinyusb/src/device"
+      "${COMPONENT_DIR}/tinyusb/lib/networking"
       # espressif:
       "${COMPONENT_DIR}/additions/include_private"
       )
@@ -64,6 +65,11 @@ if(CONFIG_USB_ENABLED)
          "${COMPONENT_DIR}/additions/src/tusb_console.c"
          "${COMPONENT_DIR}/additions/src/vfs_tinyusb.c")
   endif()
+
+  list(APPEND srcs
+    "${COMPONENT_DIR}/tinyusb/src/class/net/net_device.c"
+    "${COMPONENT_DIR}/tinyusb/lib/networking/rndis_reports.c"
+    )
 
   ### tinyusb lib ###
   ###################

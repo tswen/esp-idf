@@ -99,8 +99,8 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
         string_descriptor = config->string_descriptor;
     }
 
-    tusb_set_descriptor(descriptor,
-                        string_descriptor);
+    // tusb_set_descriptor(descriptor,
+    //                     string_descriptor);
 
     if (!tusb_init()) {
         ESP_LOGE(TAG, "Can't initialize the TinyUSB stack.");

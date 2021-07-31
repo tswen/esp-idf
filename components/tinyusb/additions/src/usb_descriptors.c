@@ -15,7 +15,7 @@
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
 
-#define USB_TUSB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | _PID_MAP(MIDI, 3))
+#define USB_TUSB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | _PID_MAP(MIDI, 3)| _PID_MAP(NET, 4))
 
 /**** TinyUSB default ****/
 tusb_desc_device_t descriptor_tinyusb = {
@@ -29,6 +29,12 @@ tusb_desc_device_t descriptor_tinyusb = {
     .bDeviceClass = TUSB_CLASS_MISC,
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
+#elif CFG_TUD_NET
+    // Use Interface Association Descriptor (IAD) for CDC
+    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
+    .bDeviceClass = TUSB_CLASS_CDC,
+    .bDeviceSubClass = 0,
+    .bDeviceProtocol = 0,
 #else
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
@@ -72,6 +78,12 @@ tusb_desc_device_t descriptor_kconfig = {
     .bDeviceClass = TUSB_CLASS_MISC,
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
+#elif CFG_TUD_NET
+    // Use Interface Association Descriptor (IAD) for CDC
+    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
+    .bDeviceClass = TUSB_CLASS_CDC,
+    .bDeviceSubClass = 0,
+    .bDeviceProtocol = 0,
 #else
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
@@ -109,6 +121,12 @@ tusb_desc_strarray_device_t descriptor_str_kconfig = {
     CONFIG_USB_DESC_SERIAL_STRING,       // 3: Serials, should use chip ID
 
 #if CONFIG_USB_CDC_ENABLED
+    CONFIG_USB_DESC_CDC_STRING,          // 4: CDC Interface
+#else
+    "",
+#endif
+
+#if CONFIG_USB_NET_ENABLED
     CONFIG_USB_DESC_CDC_STRING,          // 4: CDC Interface
 #else
     "",

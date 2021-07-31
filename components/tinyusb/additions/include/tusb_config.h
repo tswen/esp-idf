@@ -71,12 +71,12 @@ extern "C" {
 // HID buffer size Should be sufficient to hold ID (if any) + Data
 #define CFG_TUD_HID_BUFSIZE CONFIG_USB_HID_BUFSIZE
 
-#define CFG_TUD_CDC CONFIG_USB_CDC_ENABLED
+#define CFG_TUD_CDC 2//CONFIG_USB_CDC_ENABLED // ToDo:
 #define CFG_TUD_MSC CONFIG_USB_MSC_ENABLED
 #define CFG_TUD_HID CONFIG_USB_HID_ENABLED
 #define CFG_TUD_MIDI CONFIG_USB_MIDI_ENABLED
 #define CFG_TUD_CUSTOM_CLASS CONFIG_USB_CUSTOM_CLASS_ENABLED
-
+#define CFG_TUD_NET         1
 /*         */
 /* KCONFIG */
 /*         */
