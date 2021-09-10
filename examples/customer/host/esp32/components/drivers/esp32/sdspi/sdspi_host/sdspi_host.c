@@ -825,18 +825,6 @@ esp_err_t at_sdspi_clear_intr(uint32_t intr_mask)
     return esp_slave_write_bytes(HOST_SLC0HOST_INT_CLR_REG, (uint8_t*)&intr_mask, 4);
 }
 
-esp_err_t at_sdspi_send_intr(uint8_t intr_no)
-{
-    uint32_t intr_mask = 0;
-    if (intr_no >= 8) {
-        ESP_AT_LOGE(TAG, "Error interrupt number");
-        return ESP_FAIL;
-    }
-    intr_mask = 0x1 << (intr_no + HOST_SLCHOST_CONF_REG_OFFSET);
-
-    return esp_slave_write_bytes(HOST_SLCHOST_CONF_REG, (uint8_t*)&intr_mask, 4);
-}
-
 //esp_err_t at_sdspi_get_intr(uint32_t* intr_raw, uint32_t* intr_st)
 esp_err_t at_sdspi_get_intr(uint32_t* intr_raw)
 {
