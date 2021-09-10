@@ -1,0 +1,110 @@
+menu "Driver platform Configuration"
+
+choice TRANSMIT_PERIPHERAL
+    prompt "Transmit peripheral"
+    default TRANSMIT_USE_SDSPI
+    help
+        Select transmit peripheral(SDIO or SPI or SDSPI)
+
+config TRANSMIT_USE_SPI
+    bool "Using SPI"
+config TRANSMIT_USE_SDIO
+    bool "Using SDIO(Only for ESP32)"
+config TRANSMIT_USE_SDSPI
+    bool "Using SDSPI(Only for ESP32)"
+endchoice
+
+choice TARGET_PLATFORM
+    prompt "Taget slave platform"
+    default SLAVE_ESP32_SERIES 
+    help
+        Select which target is used (ESP8266 or ESP32 series(ESP32_C3 or ESP32_S2)).
+
+config SLAVE_ESP32_SERIES
+    depends on TRANSMIT_USE_SPI
+    bool "ESP32 series(ESP32-S2/ESP32-C3)"
+config SLAVE_ESP8266
+    depends on TRANSMIT_USE_SPI
+    bool "ESP8266"
+config SLAVE_ESP32
+    depends on TRANSMIT_USE_SDIO
+    bool "ESP32"
+endchoice
+
+choice SDIO_TRANSMIT
+    prompt "SDIO transmit mode"
+    depends on TRANSMIT_USE_SDIO
+    default SDIO_ONE_BIT_MODE
+
+config SDIO_ONE_BIT_MODE
+    bool "1-bit mode"
+    help
+        The MCU can transmit data through 1-line SD protocol.
+config SDIO_FOUR_BIT_MODE
+    bool "4-bit mode"
+    help
+        The MCU can transmit data through 4-line SD protocol. 
+endchoice
+
+choice SPI_TRANSMIT
+    prompt "communicate way for SPI transmit"
+    depends on TRANSMIT_USE_SPI
+    default SPI_SINGLE_MODE
+
+config SPI_SINGLE_MODE
+    bool "Standard SPI"
+    help
+        The MCU can transmit data through MOSI or MISO line.
+config SPI_DUAL_MODE
+    bool "Dual SPI"
+    help
+        The MCU can transmit data through MOSI and MISO line. 
+config SPI_QUAD_MODE
+    bool "Quad SPI"
+    depends on SLAVE_ESP32_SERIES
+    help
+        Quad SPI goes beyond dual SPI, adding two more I/O lines and sends 4 data bits per clock cycle.
+endchoice
+
+choice SPI_DATA_TRANSMIT
+    prompt "Data communicate way for SPI transmit"
+    default SPI_STREAM_MODE
+
+config SPI_STREAM_MODE
+    bool "Stream mode"
+    help
+        Data can be assemble. The actual length sent by SPI may not be specified
+config SPI_PACKET_MODE
+    bool "Packet mode"
+    help
+        The SPI must be sent and received at a requested length.
+endchoice
+
+menu "spi gpio settings"
+    depends on TRANSMIT_USE_SPI
+    config SPI_SCLK_PIN
+        int "SPI sclk pin"
+        default 15
+    config SPI_MOSI_PIN
+        int "SPI mosi pin"
+        default 13
+    config SPI_MISO_PIN
+        int "SPI miso pin"
+        default 12
+    config SPI_CS_PIN
+        int "SPI cs pin"
+        default 14
+    config SPI_HANDSHAKE_PIN
+        int "SPI handshake pin for slave send"
+        default 5
+    config SPI_WP_PIN
+        int "SPI WP pin(quad spi)"
+        default 16
+        depends on SPI_QUAD_MODE
+    config SPI_HD_PIN
+        int "SPI HD pin(quad spi)"
+        default 17
+        depends on SPI_QUAD_MODE
+endmenu
+
+endmenu
