@@ -8,7 +8,7 @@
    */
 #include "sdkconfig.h"
 
-#if CONFIG_TRANSMIT_USE_SDIO
+#if CONFIG_TRANSMIT_USE_SDSPI
 
 #include <stdio.h>
 #include <stdint.h>
@@ -21,10 +21,10 @@
 #include "esp_system.h"
 #include "esp_log.h"
 
-#include "sdio_host_log.h"
-#include "sdio_host_transport.h"
-
 #include "host_serial_bus.h"
+
+#include "sdspi_host.h"
+#include "port.h"
 
 #define BUFFER_LEN     4096  
 
@@ -35,9 +35,9 @@ DMA_ATTR uint8_t send_buffer[BUFFER_LEN] = "";
 DMA_ATTR uint8_t rcv_buffer[BUFFER_LEN] = "";
 static xSemaphoreHandle pxMutex;
 
-static const char TAG[] = "sdio_host";
+static const char TAG[] = "sdspi_host";
 
-int sdio_debugLevel = 2;    // print info log, set to 3 if you want to debug
+spi_context_t context;
 
 #define SDIO_ERROR_CHECK(x) do {                                         \
         sdio_err_t __err_rc = (x);                                       \
@@ -57,68 +57,60 @@ void spi_mutex_unlock(void)
     xSemaphoreGive(pxMutex);
 }
 
-static void sdio_recv_task(void* arg)
+static void sdspi_recv_task(void* pvParameters)
 {
-    const int wait_ms = 50;
+    esp_err_t ret;
+    uint8_t flag = 1;
     uint32_t intr_raw;
-    host_serial_bus_handle_t dev = (host_serial_bus_handle_t)arg;
-    while (1) {
-        esp_err_t ret = sdio_host_wait_int(10000 / portTICK_RATE_MS);
+    host_serial_bus_handle_t dev = (host_serial_bus_handle_t)pvParameters;
 
-        if (ret != SUCCESS) {
-            printf("sdio recv timeout\n");
+    while (1) {
+
+        if (flag) {
+            ret = at_spi_wait_int(100);
+        } else {
+            ret = at_spi_wait_int(portMAX_DELAY);
+        }
+
+        if (ret == ESP_ERR_TIMEOUT) {
+            flag = 0;
             continue;
         }
+
+        assert(ret == ESP_OK);
 
         spi_mutex_lock();
-        ret = sdio_host_get_intr(&intr_raw, NULL);
-        SDIO_ERROR_CHECK(ret);
 
-        if (intr_raw == 0) {
-            //SDIO_LOGW(TAG, "No intr\r\n");
-            spi_mutex_unlock();
-            continue;
-        }
+        ret = at_sdspi_get_intr(&intr_raw);
+        assert(ret == ESP_OK);
 
-        ret = sdio_host_clear_intr(intr_raw);
-        SDIO_ERROR_CHECK(ret);
-        SDIO_LOGD(TAG, "intr raw: %x", intr_raw);
+        ret = at_sdspi_clear_intr(intr_raw);
+        assert(ret == ESP_OK);
 
         if (intr_raw & HOST_SLC0_RX_NEW_PACKET_INT_ST) {
-            SDIO_LOGD(TAG, "new packet coming");
+            size_t size_read = BUFFER_LEN;
+            esp_err_t err = at_sdspi_get_packet(&context, rcv_buffer, BUFFER_LEN, &size_read);
 
-            while (1) {
-                size_t size_read = BUFFER_LEN;
-                ret = sdio_host_get_packet(rcv_buffer, BUFFER_LEN, &size_read, wait_ms);
-
-                if (ret == ERR_NOT_FOUND) {
-                    SDIO_LOGE(TAG, "interrupt but no data can be read");
-                    break;
-                } else if (ret != SUCCESS && ret != ERR_NOT_FINISHED) {
-                    SDIO_LOGE(TAG, "rx packet error: %08X", ret);
-                    break;
-                }
-                //ets_printf("RX len:%d\n", size_read);
-                //ESP_LOG_BUFFER_HEXDUMP(TAG_RX, rcv_buffer, size_read, ESP_LOG_INFO);
-
-                if (dev->ops->event_cb) {
-                    dev->ops->event_cb(dev, BUFF_FULL, rcv_buffer, size_read);
-                }
-
-                if (ret == SUCCESS) {
-                    break;
-                }
+            if (err == ESP_ERR_NOT_FOUND) {
+                ESP_AT_LOGE(TAG, "interrupt but no data can be read");
+                break;
+            } else if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED) {
+                ESP_AT_LOGE(TAG, "rx packet error: %08X", err);
             }
+
+            if (dev->ops->event_cb) {
+                dev->ops->event_cb(dev, BUFF_FULL, rcv_buffer, size_read);
+            }
+
+            memset(rcv_buffer, '\0', sizeof(rcv_buffer));
         }
         spi_mutex_unlock();
     }
-
-    vTaskDelete(NULL);
 }
 
-static int32_t esp32_sdio_write(host_serial_bus_handle_t dev, const void* data, size_t size)
+static int32_t esp32_sdspi_write(host_serial_bus_handle_t dev, const void* data, size_t size)
 {
-    sdio_err_t err;
+    esp_err_t err;
     int32_t length = size;
 
     if (data == NULL  || length > BUFFER_LEN) {
@@ -131,29 +123,30 @@ static int32_t esp32_sdio_write(host_serial_bus_handle_t dev, const void* data, 
     //ets_printf("TX len:%d\n", size);
     //ESP_LOG_BUFFER_HEXDUMP(TAG_TX, send_buffer, size, ESP_LOG_INFO);
 
-    err = sdio_host_send_packet(send_buffer, size);
-    // Send timeout
-    if (err == ERR_TIMEOUT) {
-        SDIO_LOGW(TAG, "send timeout");
+    err = at_sdspi_send_packet(&context, send_buffer, size, UINT32_MAX);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Send error, %d\n", err);
     }
+
     spi_mutex_unlock();
 
     return size;
 }
 
-static esp_err_t esp32_sdio_init(host_serial_bus_handle_t dev)
+static esp_err_t esp32_sdspi_init(host_serial_bus_handle_t dev)
 {
-    sdio_err_t err;
+    esp_err_t err;
     pxMutex = xSemaphoreCreateMutex();
-    printf("Start SDIO test\r\n");
+    printf("Start SDSPI test\r\n");
     // Make sure SDIO slave has been inited
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-    SDIO_LOGI(TAG, "host ready, start initializing slave...");
-    err = sdio_init();
+    ESP_LOGE(TAG, "host ready, start initializing slave...");
+    err = at_sdspi_init();
     assert(err == ESP_OK);
-
-    xTaskCreate(sdio_recv_task, "sdioRecvTask", 2048, dev, 16, NULL);
+    memset(&context, 0x0, sizeof(spi_context_t));
+    xTaskCreate(sdspi_recv_task, "sdspi_recv_task", 2048, dev, 16, NULL);
     return ESP_OK;
 }
 
@@ -167,8 +160,8 @@ esp_err_t host_sdio_master_hw(host_serial_bus_handle_t dev)
 
     memset(ops, 0x0, sizeof(host_device_ops_t));
 
-    ops->init = esp32_sdio_init;
-    ops->write = esp32_sdio_write;
+    ops->init = esp32_sdspi_init;
+    ops->write = esp32_sdspi_write;
 
     dev->ops = ops;
     return ESP_OK;

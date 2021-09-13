@@ -1,12 +1,13 @@
 set(srcs)
 set(include_dirs)
 
+list(APPEND srcs "host_serial_bus.c")
+list(APPEND include_dirs include)
+
 if(CONFIG_TRANSMIT_USE_SDSPI)
-    list(APPEND srcs "esp32/sdspi_host/sdspi_host.c" "esp32/sdspi_host/port.c")
-    list(APPEND include_dirs esp32/sdspi_host/include)
+    list(APPEND srcs "esp32/sdspi/sdspi_host_esp32.c" "esp32/sdspi/sdspi_host/sdspi_host.c" "esp32/sdspi/sdspi_host/port.c")
+    list(APPEND include_dirs esp32/sdspi/sdspi_host/include)
 else()
-    list(APPEND srcs "host_serial_bus.c")
-    list(APPEND include_dirs include)
     if(CONFIG_TRANSMIT_USE_SPI)
         if(CONFIG_SLAVE_ESP32_SERIES)
             list(APPEND srcs "esp32/spi/spi_master_esp32_series.c")

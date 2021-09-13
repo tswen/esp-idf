@@ -348,7 +348,7 @@ sdio_err_t sdio_host_send_packet(const void* start, size_t length)
                 SDIO_LOGD(TAG, "buffer is not enough: %d, %d required. Retry...", num, buffer_used);
             }
             if(cnt%1000 == 0) {
-                SDIO_LOGI(TAG, "Get buffer too many times, num:%d, test_count: %d, tx_sent_buffers: %d", num, test_count, tx_sent_buffers);
+                SDIO_LOGI(TAG, "Get buffer too many times, num:%d, test_count: %d, length: %d", num, test_count, length);
             }
             vTaskDelay(10);
             //platform_os_delay(delay_time);

@@ -25,14 +25,8 @@
 #include "serial_drv.h"
 #include "netdev_if.h"
 
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
-#include "sdspi_host.h"
-#include "port.h"
-#else
-#include "sdio_host_transport.h"
 #include "host_serial_bus.h"
 #include "host_config.h"
-#endif
 
 /** Constants/Macros **/
 #define TO_SLAVE_QUEUE_SIZE               10
@@ -47,15 +41,8 @@
 
 static const char *TAG = "sdio_drv";
 
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
-static spi_context_t context;
-static uint8_t esp_at_sendbuf[READ_BUFFER_LEN] = "";
-static uint8_t esp_at_recvbuf[READ_BUFFER_LEN + 1] = "";
-static void sdspi_recv_task(void* pvParameters);
-#else
 static host_serial_bus_handle_t s_host_device_handle;
 static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_status_t recv_status, const void *buffer, size_t len);
-#endif
 
 static int esp_netdev_open(netdev_handle_t netdev);
 static int esp_netdev_close(netdev_handle_t netdev);
@@ -231,20 +218,12 @@ esp_err_t esp_sdspi_init(void(*spi_drv_evt_handler)(uint8_t))
 {
 	esp_err_t retval = ESP_OK;
 
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
-    retval = at_sdspi_init();
-    assert(retval == ESP_OK);
-	memset(&context, 0x0, sizeof(spi_context_t));
-	at_sdspi_send_intr(0);
-#else
 	s_host_device_handle = host_serial_bus_open(DEVICE_SDIO);
 	if (s_host_device_handle == NULL) {
 		ESP_LOGE(TAG, "open device error");
 		return ESP_FAIL;
 	}
-	sdio_host_send_intr(0);
 	host_serial_bus_register_recv_callback(s_host_device_handle, recv_cb);
-#endif
 
 	/* register callback */
 	sdspi_drv_evt_handler_fp = spi_drv_evt_handler;
@@ -266,10 +245,10 @@ esp_err_t esp_sdspi_init(void(*spi_drv_evt_handler)(uint8_t))
 	assert(from_slave_queue);
 
 	/* Task - RX processing */
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
+#if DIVER_SELECT
 	xTaskCreate(sdspi_recv_task, "sdspi_recv_task", 4 * 1024, NULL, 6, NULL);
 #endif
-	xTaskCreate(process_rx_task, "Process_RX_Task", PROCESS_RX_TASK_STACK_SIZE, NULL, 6, &Process_RX_Task_Handle);
+	xTaskCreate(process_rx_task, "Process_RX_Task", PROCESS_RX_TASK_STACK_SIZE, NULL, 12, &Process_RX_Task_Handle);
 	configASSERT(Process_RX_Task_Handle);
 
 	return ESP_OK;
@@ -285,14 +264,7 @@ static void check_and_execute_spi_transaction(uint16_t wlen)
 	txbuff = get_tx_buffer(&is_valid_tx_buf);
 	// ESP_LOG_BUFFER_HEXDUMP(TAG, txbuff, wlen + ESP_PAYLOAD_HEADER_SIZE, ESP_LOG_INFO);
 
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
-	esp_err_t err = at_sdspi_send_packet(&context, txbuff, wlen + ESP_PAYLOAD_HEADER_SIZE, UINT32_MAX);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "Send error, %d\n", err);
-	}
-#else
 	host_serial_bus_write(s_host_device_handle, txbuff, wlen + ESP_PAYLOAD_HEADER_SIZE);
-#endif
 
 	free(txbuff);
 }
@@ -342,76 +314,6 @@ esp_err_t send_to_slave(uint8_t iface_type, uint8_t iface_num,
 	return ESP_OK;
 }
 
-#ifdef CONFIG_TRANSMIT_USE_SDSPI
-static void sdspi_recv_task(void* pvParameters)
-{
-    esp_err_t ret;
-    uint8_t flag = 1;
-    uint32_t intr_raw;
-
-	interface_buffer_handle_t buf_handle = {0};
-	struct  esp_payload_header *payload_header;
-	uint16_t payload_len, offset;
-
-    while (1) {
-
-        if (flag) {
-            ret = at_spi_wait_int(100);
-        } else {
-            ret = at_spi_wait_int(portMAX_DELAY);
-        }
-
-        if (ret == ESP_ERR_TIMEOUT) {
-            flag = 0;
-            continue;
-        }
-
-        assert(ret == ESP_OK);
-
-        ret = at_sdspi_get_intr(&intr_raw);
-        assert(ret == ESP_OK);
-
-        ret = at_sdspi_clear_intr(intr_raw);
-        assert(ret == ESP_OK);
-
-        if (intr_raw & HOST_SLC0_RX_NEW_PACKET_INT_ST) {
-            size_t size_read = READ_BUFFER_LEN;
-            esp_err_t err = at_sdspi_get_packet(&context, esp_at_recvbuf, READ_BUFFER_LEN, &size_read);
-
-            if (err == ESP_ERR_NOT_FOUND) {
-                ESP_LOGE(TAG, "interrupt but no data can be read");
-                break;
-            } else if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED) {
-                ESP_LOGE(TAG, "rx packet error: %08X", err);
-            }
-
-            {
-				/* create buffer rx handle, used for processing */
-				payload_header = (struct esp_payload_header *) esp_at_recvbuf;
-
-				/* Fetch length and offset from payload header */
-				payload_len = le16toh(payload_header->len);
-				offset = le16toh(payload_header->offset);
-
-				buf_handle.priv_buffer_handle = esp_at_recvbuf;
-				buf_handle.free_buf_handle = free;
-				buf_handle.payload_len = payload_len;
-				buf_handle.if_type     = payload_header->if_type;
-				buf_handle.if_num      = payload_header->if_num;
-				buf_handle.payload     = esp_at_recvbuf + offset;
-				
-				if (pdTRUE != xQueueSend(from_slave_queue,
-							&buf_handle, portMAX_DELAY)) {
-					printf("Failed to send buffer\n\r");
-					break;
-				}
-            }
-
-            memset(esp_at_recvbuf, '\0', sizeof(esp_at_recvbuf));
-        }
-    }
-}
-#else
 static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_status_t recv_status, const void *buffer, size_t len)
 {
     if (!buffer || !len) {
@@ -419,30 +321,34 @@ static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_st
     }
 	ESP_LOGD(TAG, "Host recv len %d", len);
 
+
 	interface_buffer_handle_t buf_handle = {0};
 	struct  esp_payload_header *payload_header;
 	uint16_t payload_len, offset;
 
+	uint8_t *recv_data = malloc((len + 1) * sizeof(uint8_t));
+	assert(recv_data);
+	memcpy(recv_data, buffer, len);
+
 	/* create buffer rx handle, used for processing */
-	payload_header = (struct esp_payload_header *) buffer;
+	payload_header = (struct esp_payload_header *) recv_data;
 
 	/* Fetch length and offset from payload header */
 	payload_len = le16toh(payload_header->len);
 	offset = le16toh(payload_header->offset);
 
-	buf_handle.priv_buffer_handle = buffer;
+	buf_handle.priv_buffer_handle = recv_data;
 	buf_handle.free_buf_handle = free;
 	buf_handle.payload_len = payload_len;
 	buf_handle.if_type     = payload_header->if_type;
 	buf_handle.if_num      = payload_header->if_num;
-	buf_handle.payload     = buffer + offset;
+	buf_handle.payload     = recv_data + offset;
 	
 	if (pdTRUE != xQueueSend(from_slave_queue,
-				&buf_handle, portMAX_DELAY)) {
+				&buf_handle, 5000 / portTICK_PERIOD_MS)) {
 		printf("Failed to send buffer\n\r");
 	}
 }
-#endif
 
 /** Local functions **/
 
@@ -523,9 +429,9 @@ static void process_rx_task(void* pvParameters)
 		 * failed to offload, buffer should be freed here.
 		 */
 /****************************************************/ //debug 
-		// if (buf_handle.free_buf_handle) {
-		// 	buf_handle.free_buf_handle(buf_handle.priv_buffer_handle);
-		// }
+		if (buf_handle.free_buf_handle) {
+			buf_handle.free_buf_handle(buf_handle.priv_buffer_handle);
+		}
 /****************************************************/
 	}
 }

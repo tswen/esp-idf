@@ -217,12 +217,10 @@ typedef struct {
 
 #define DR_REG_SLCHOST_BASE                     0x3ff55000
 #define HOST_SLC0HOST_TOKEN_RDATA_REG          (DR_REG_SLCHOST_BASE + 0x44)
-#define HOST_SLC0HOST_INT_CLR_REG              (DR_REG_SLCHOST_BASE + 0xD4)
-#define HOST_SLC0HOST_INT_RAW_REG              (DR_REG_SLCHOST_BASE + 0x50)
-#define HOST_SLC0HOST_INT_ST_REG               (DR_REG_SLCHOST_BASE + 0x58)
-#define HOST_SLCHOST_PKT_LEN_REG               (DR_REG_SLCHOST_BASE + 0x60)
-#define HOST_SLCHOST_CONF_REG                  (DR_REG_SLCHOST_BASE + 0x8c)
-#define HOST_SLCHOST_CONF_REG_OFFSET           0
+#define HOST_SLC0HOST_INT_CLR_REG          (DR_REG_SLCHOST_BASE + 0xD4)
+#define HOST_SLC0HOST_INT_RAW_REG          (DR_REG_SLCHOST_BASE + 0x50)
+#define HOST_SLC0HOST_INT_ST_REG           (DR_REG_SLCHOST_BASE + 0x58)
+#define HOST_SLCHOST_PKT_LEN_REG          (DR_REG_SLCHOST_BASE + 0x60)
 
 #define HOST_SLC0_RX_NEW_PACKET_INT_ST  (BIT(23))
 
@@ -231,8 +229,6 @@ esp_err_t at_sdspi_get_packet(spi_context_t* context, void* out_data, size_t siz
 esp_err_t at_sdspi_send_packet(spi_context_t* context, const void* start, size_t length, uint32_t wait_ms);
 
 esp_err_t at_sdspi_clear_intr(uint32_t intr_mask);
-
-esp_err_t at_sdspi_send_intr(uint8_t intr_no);
 
 //esp_err_t at_sdspi_get_intr(uint32_t *intr_raw, uint32_t *intr_st);
 esp_err_t at_sdspi_get_intr(uint32_t *intr_raw);
