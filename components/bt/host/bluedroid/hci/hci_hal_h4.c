@@ -27,6 +27,11 @@
 #include "esp_bt.h"
 #include "stack/hcimsgs.h"
 
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+extern void sdio_send_data_to_controller(uint8_t *data, uint16_t length);
+extern int sdio_recv_data_from_controller(uint8_t *data, uint16_t len);
+#endif
+
 #if (C2H_FLOW_CONTROL_INCLUDED == TRUE)
 #include "l2c_int.h"
 #endif ///C2H_FLOW_CONTROL_INCLUDED == TRUE
@@ -155,8 +160,13 @@ static uint16_t transmit_data(serial_data_type_t type,
 
     BTTRC_DUMP_BUFFER("Transmit Pkt", data, length);
 
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+    //esp_log_buffer_hex("BT_TX", data, length);
+    sdio_send_data_to_controller(data, length);
+#else
     // TX Data to target
     esp_vhci_host_send_packet(data, length);
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 
     // Be nice and restore the old value of that byte
     *(data) = previous_byte;
@@ -311,6 +321,36 @@ static void host_send_pkt_available_cb(void)
     //Just Call Host main thread task to process pending packets.
     hci_host_task_post(OSI_THREAD_MAX_TIMEOUT);
 }
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+
+int sdio_recv_data_from_controller(uint8_t *data, uint16_t len) {
+    //Target has packet to host, malloc new buffer for packet
+    BT_HDR *pkt;
+    size_t pkt_size;
+    //esp_log_buffer_hex("cc", data, len);
+    if (hci_hal_env.rx_q == NULL) {
+        return 0;
+    }
+    pkt_size = BT_HDR_SIZE + len;
+    pkt = (BT_HDR *) osi_calloc(pkt_size);
+
+    if (!pkt) {
+        HCI_TRACE_ERROR("%s couldn't aquire memory for inbound data buffer.\n", __func__);
+        printf("malloc failed\n");
+        return -1;
+    }
+    pkt->offset = 0;
+    pkt->len = len;
+    pkt->layer_specific = 0;
+    memcpy(pkt->data, data, len);
+    fixed_queue_enqueue(hci_hal_env.rx_q, pkt, FIXED_QUEUE_MAX_TIMEOUT);
+    free(data);
+    hci_hal_h4_task_post(0);
+
+    BTTRC_DUMP_BUFFER("Recv Pkt", pkt->data, len);
+    return 0;
+}
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 
 static int host_recv_pkt_cb(uint8_t *data, uint16_t len)
 {

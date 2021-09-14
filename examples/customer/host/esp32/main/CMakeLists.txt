@@ -17,6 +17,8 @@ list(APPEND srcs
     "dongle_main.c"
     "CLI_Commands.c"
     "Command_Parse.c"
+    "bt_app_av.c"
+    "bt_app_core.c"
     "uart.c"
     )
 

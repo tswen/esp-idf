@@ -32,7 +32,7 @@ menu "Example Configuration"
         range 0 34 if IDF_TARGET_ESP32
         range 0 46 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
         range 0 19 if IDF_TARGET_ESP32C3
-        default 5
+        default 19
         help
             GPIO number for UART RX pin. See UART documentation for more information
             about available pin numbers for UART.
@@ -43,7 +43,7 @@ menu "Example Configuration"
         range 0 34 if IDF_TARGET_ESP32
         range 0 46 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
         range 0 19 if IDF_TARGET_ESP32C3
-        default 4
+        default 17
         help
             GPIO number for UART TX pin. See UART documentation for more information
             about available pin numbers for UART.
@@ -57,3 +57,48 @@ menu "Example Configuration"
             Defines stack size for UART echo example. Insufficient stack size can cause crash.
 
 endmenu # "Example Configuration"
+menu "A2DP Example Configuration"
+
+    choice EXAMPLE_A2DP_SINK_OUTPUT
+        prompt "A2DP Sink Output"
+        default EXAMPLE_A2DP_SINK_OUTPUT_EXTERNAL_I2S
+        help
+            Select to use Internal DAC or external I2S driver
+
+        config EXAMPLE_A2DP_SINK_OUTPUT_INTERNAL_DAC
+            bool "Internal DAC"
+            help
+                Select this to use Internal DAC sink output
+
+        config EXAMPLE_A2DP_SINK_OUTPUT_EXTERNAL_I2S
+            bool "External I2S Codec"
+            help
+                Select this to use External I2S sink output
+
+    endchoice
+
+    config EXAMPLE_I2S_LRCK_PIN
+        int "I2S LRCK (WS) GPIO"
+        default 18
+        depends on EXAMPLE_A2DP_SINK_OUTPUT_EXTERNAL_I2S
+        help
+            GPIO number to use for I2S LRCK(WS) Driver.
+
+    config EXAMPLE_I2S_BCK_PIN
+        int "I2S BCK GPIO"
+        default 26
+        depends on EXAMPLE_A2DP_SINK_OUTPUT_EXTERNAL_I2S
+        help
+            GPIO number to use for I2S BCK Driver.
+
+    config EXAMPLE_I2S_DATA_PIN
+        int "I2S DATA GPIO"
+        default 33
+        depends on EXAMPLE_A2DP_SINK_OUTPUT_EXTERNAL_I2S
+        help
+            GPIO number to use for I2S Data Driver.
+    config BT_A2DP_SINK_HCI
+        bool "Enabe bt a2dp_sink feature"
+        default y
+
+endmenu
