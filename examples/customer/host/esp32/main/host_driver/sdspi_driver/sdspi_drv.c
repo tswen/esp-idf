@@ -36,8 +36,8 @@
 
 #define READ_BUFFER_LEN     4096
 
-#define ESP_PAYLOAD_HEADER_SIZE    8
-#define MAX_PAYLOAD_SIZE (MAX_SPI_BUFFER_SIZE-sizeof(struct esp_payload_header))
+#define ESP_PAYLOAD_HEADER_SIZE    (sizeof(struct esp_payload_header))
+#define MAX_PAYLOAD_SIZE           (MAX_SPI_BUFFER_SIZE - ESP_PAYLOAD_HEADER_SIZE)
 
 static const char *TAG = "sdio_drv";
 
@@ -47,6 +47,10 @@ static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_st
 static int esp_netdev_open(netdev_handle_t netdev);
 static int esp_netdev_close(netdev_handle_t netdev);
 static int esp_netdev_xmit(netdev_handle_t netdev, struct pbuf *net_buf);
+
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+extern int sdio_recv_data_from_controller(uint8_t *data, uint16_t len);
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 
 static struct esp_private *esp_priv[MAX_NETWORK_INTERFACES];
 
@@ -245,9 +249,6 @@ esp_err_t esp_sdspi_init(void(*spi_drv_evt_handler)(uint8_t))
 	assert(from_slave_queue);
 
 	/* Task - RX processing */
-#if DIVER_SELECT
-	xTaskCreate(sdspi_recv_task, "sdspi_recv_task", 4 * 1024, NULL, 6, NULL);
-#endif
 	xTaskCreate(process_rx_task, "Process_RX_Task", PROCESS_RX_TASK_STACK_SIZE, NULL, 12, &Process_RX_Task_Handle);
 	configASSERT(Process_RX_Task_Handle);
 
@@ -268,6 +269,17 @@ static void check_and_execute_spi_transaction(uint16_t wlen)
 
 	free(txbuff);
 }
+
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+int sdio_send_data_to_controller(uint8_t *data, uint16_t len){
+
+	uint8_t * send_buff = (uint8_t* )malloc(len);
+	memcpy(send_buff, data, len);
+	int ret = send_to_slave(ESP_HCI_IF, 0, send_buff, len);
+
+    return ret;
+}
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 
 /**
   * @brief  Send to slave via SPI
@@ -343,7 +355,7 @@ static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_st
 	buf_handle.if_type     = payload_header->if_type;
 	buf_handle.if_num      = payload_header->if_num;
 	buf_handle.payload     = recv_data + offset;
-	
+
 	if (pdTRUE != xQueueSend(from_slave_queue,
 				&buf_handle, 5000 / portTICK_PERIOD_MS)) {
 		printf("Failed to send buffer\n\r");
@@ -366,6 +378,7 @@ static void process_rx_task(void* pvParameters)
 	struct esp_priv_event *event = NULL;
 	struct esp_private *priv = NULL;
 	uint8_t *serial_buf = NULL;
+	uint8_t * send_to_host = NULL;
 
 	while (1) {
 		ret = xQueueReceive(from_slave_queue, &buf_handle, portMAX_DELAY);
@@ -422,17 +435,23 @@ static void process_rx_task(void* pvParameters)
 				/* User can re-use this type of transaction */
 			}
 		}
+#ifdef CONFIG_BT_A2DP_SINK_HCI
+		else if (buf_handle.if_type == ESP_HCI_IF) {
+			//esp_log_buffer_hex("BT_RX", payload, buf_handle.payload_len);
+			send_to_host = (uint8_t *)malloc(buf_handle.payload_len);
+			memcpy(send_to_host, buf_handle.payload, buf_handle.payload_len);
+			sdio_recv_data_from_controller(send_to_host, buf_handle.payload_len);
+		}
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 
 		/* Free buffer handle */
 		/* When buffer offloaded to other module, that module is
 		 * responsible for freeing buffer. In case not offloaded or
 		 * failed to offload, buffer should be freed here.
 		 */
-/****************************************************/ //debug 
 		if (buf_handle.free_buf_handle) {
 			buf_handle.free_buf_handle(buf_handle.priv_buffer_handle);
 		}
-/****************************************************/
 	}
 }
 
