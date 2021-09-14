@@ -15,7 +15,12 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 #include "nvs_flash.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -32,15 +37,23 @@
 #include "esp_host_pkt.h"
 #include "uart.h"
 
+#ifdef CONFIG_HEAP_TRACING
+#include "esp_heap_trace.h"
+#define NUM_RECORDS 100
+static heap_trace_record_t trace_record[NUM_RECORDS]; // This buffer must be in internal RAM
+#endif /* CONFIG_HEAP_TRACING */
+
+static const char *TAG = "Dongle";
+
+esp_netif_t *netif_sta;
+
+/*
+ * Register commands that can be used with FreeRTOS+CLI through the UDP socket.
+ * The commands are defined in CLI-commands.c.
+ */
+void vRegisterCLICommands(void);
+
 #ifdef CONFIG_BT_A2DP_SINK_HCI
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-
-#include "nvs.h"
-#include "esp_system.h"
-
 #include "esp_bt.h"
 #include "bt_app_core.h"
 #include "bt_app_av.h"
@@ -50,20 +63,6 @@
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
 #include "driver/i2s.h"
-
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 /* event for handler "bt_av_hdl_stack_up */
 enum {
@@ -148,23 +147,7 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
         break;
     }
 }
-#endif /*B T_A2DP_SINK_HCI* /
-
-#ifdef CONFIG_HEAP_TRACING
-#include "esp_heap_trace.h"
-#define NUM_RECORDS 100
-static heap_trace_record_t trace_record[NUM_RECORDS]; // This buffer must be in internal RAM
-#endif /* CONFIG_HEAP_TRACING */
-
-static const char *TAG = "Dongle";
-
-esp_netif_t *netif_sta;
-
-/*
- * Register commands that can be used with FreeRTOS+CLI through the UDP socket.
- * The commands are defined in CLI-commands.c.
- */
-void vRegisterCLICommands(void);
+#endif /* BT_A2DP_SINK_HCI */
 
 /**
   * @brief  Control path event handler callback
@@ -184,7 +167,6 @@ static void control_path_event_handler(uint8_t event)
 		}
 		case STATION_STARTED:
 		{
-			//init_sta();
             printf("WiFi started\r\n");
             esp_event_post(WIFI_EVENT, WIFI_EVENT_STA_START, NULL, 0, 0);
 			break;
@@ -216,28 +198,6 @@ static void on_got_ip(void* arg, esp_event_base_t event_base,
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
     ESP_LOGI(TAG, "Got IPv4 event: Interface \"%s\" address: " IPSTR, esp_netif_get_desc(event->esp_netif), IP2STR(&event->ip_info.ip));
 
-}
-
-
-/**
-  * @brief  sdspi driver event handler callback
-  * @param  event - sdspi_drv_events_e event to be handled
-  * @retval None
-  */
-static void sdspi_driver_event_handler(uint8_t event)
-{
-	switch(event)
-	{
-		case SDSPI_DRIVER_ACTIVE:
-		{
-            printf("app main: control_path_init\r\n");
-			/* Initiate control path now */
-			control_path_init(control_path_event_handler);
-			break;
-		}
-		default:
-		break;
-	}
 }
 
 void app_main(void)
@@ -305,7 +265,6 @@ void app_main(void)
     i2s_set_pin(0, &pin_config);
 #endif
 
-
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -353,5 +312,5 @@ void app_main(void)
     pin_code[2] = '3';
     pin_code[3] = '4';
     esp_bt_gap_set_pin(pin_type, 4, pin_code);
-#endif /*CONFIG_BT_A2DP_SINK_HCI*/
+#endif /* CONFIG_BT_A2DP_SINK_HCI */
 }

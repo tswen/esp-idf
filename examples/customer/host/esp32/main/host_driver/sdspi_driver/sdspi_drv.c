@@ -36,8 +36,8 @@
 
 #define READ_BUFFER_LEN     4096
 
-#define ESP_PAYLOAD_HEADER_SIZE    8
-#define MAX_PAYLOAD_SIZE (MAX_SPI_BUFFER_SIZE-sizeof(struct esp_payload_header))
+#define ESP_PAYLOAD_HEADER_SIZE    (sizeof(struct esp_payload_header))
+#define MAX_PAYLOAD_SIZE           (MAX_SPI_BUFFER_SIZE - ESP_PAYLOAD_HEADER_SIZE)
 
 static const char *TAG = "sdio_drv";
 
@@ -47,7 +47,6 @@ static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_st
 static int esp_netdev_open(netdev_handle_t netdev);
 static int esp_netdev_close(netdev_handle_t netdev);
 static int esp_netdev_xmit(netdev_handle_t netdev, struct pbuf *net_buf);
-
 
 #ifdef CONFIG_BT_A2DP_SINK_HCI
 extern int sdio_recv_data_from_controller(uint8_t *data, uint16_t len);
@@ -356,6 +355,7 @@ static esp_err_t IRAM_ATTR recv_cb(host_serial_bus_handle_t device, host_recv_st
 	buf_handle.if_type     = payload_header->if_type;
 	buf_handle.if_num      = payload_header->if_num;
 	buf_handle.payload     = recv_data + offset;
+
 	if (pdTRUE != xQueueSend(from_slave_queue,
 				&buf_handle, 5000 / portTICK_PERIOD_MS)) {
 		printf("Failed to send buffer\n\r");
@@ -436,7 +436,7 @@ static void process_rx_task(void* pvParameters)
 			}
 		}
 #ifdef CONFIG_BT_A2DP_SINK_HCI
-		  else if (buf_handle.if_type == ESP_HCI_IF) {
+		else if (buf_handle.if_type == ESP_HCI_IF) {
 			//esp_log_buffer_hex("BT_RX", payload, buf_handle.payload_len);
 			send_to_host = (uint8_t *)malloc(buf_handle.payload_len);
 			memcpy(send_to_host, buf_handle.payload, buf_handle.payload_len);
@@ -449,11 +449,9 @@ static void process_rx_task(void* pvParameters)
 		 * responsible for freeing buffer. In case not offloaded or
 		 * failed to offload, buffer should be freed here.
 		 */
-/****************************************************/ //debug 
 		if (buf_handle.free_buf_handle) {
 			buf_handle.free_buf_handle(buf_handle.priv_buffer_handle);
 		}
-/****************************************************/
 	}
 }
 
