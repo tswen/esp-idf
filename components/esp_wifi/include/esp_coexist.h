@@ -48,6 +48,9 @@ typedef enum {
 #define ESP_COEX_BT_ST_A2DP_STREAMING      0x10
 #define ESP_COEX_BT_ST_A2DP_PAUSED         0x20
 
+#define COEX_SCHM_OP_CLEAR_STATUS          0
+#define COEX_SCHM_OP_SET_STATUS            1
+
 /**
  * @brief Get software coexist version string
  *
@@ -84,6 +87,15 @@ esp_err_t esp_coex_status_bit_set(esp_coex_status_type_t type, uint32_t status);
  */
 esp_err_t esp_coex_status_bit_clear(esp_coex_status_type_t type, uint32_t status);
 
+
+/**
+ * @brief Hci command set/clear coex schm status
+ * @param type : WIFI/BLE/BT
+ * @param op : clear/set
+ * @param status : WIFI/BLE/BT STATUS
+ * @return : ESP_OK - success, other - failed
+ */
+int esp_coex_status_hci_bit_set(uint8_t type,  uint8_t op, uint8_t status);
 
 #ifdef __cplusplus
 }

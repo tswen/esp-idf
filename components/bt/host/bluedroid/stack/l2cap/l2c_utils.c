@@ -2535,6 +2535,25 @@ BOOLEAN l2cu_set_acl_priority (BD_ADDR bd_addr, UINT8 priority, BOOLEAN reset_af
     return (TRUE);
 }
 
+int esp_coex_status_hci_bit_set(uint8_t type,  uint8_t op, uint8_t status)
+{
+
+    UINT8           param[3], *p;
+    tBTM_STATUS     st = BTM_WRONG_MODE;
+
+    p = param;
+    memset(param, 0, 3);
+
+    UINT8_TO_STREAM(p, type);
+    UINT8_TO_STREAM(p, op);
+    UINT8_TO_STREAM(p, status);
+
+    st = BTM_VendorSpecificCommand(HCI_VENDOR_COMMON_COEX_STATUS_CMD_OPCODE, 3, param, NULL);
+
+    return st;
+}
+
+
 #if (L2CAP_NON_FLUSHABLE_PB_INCLUDED == TRUE)
 /******************************************************************************
 **
